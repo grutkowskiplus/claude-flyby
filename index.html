@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Three-Word Haiku Generator</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --ink: #2b2a26;
+    --accent: #c45c33;
+    --card: #fffdf8;
+    --muted: #8a8a80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Georgia, "Times New Roman", serif;
+    padding: 24px;
+  }
+  .card {
+    background: var(--card);
+    max-width: 540px;
+    width: 100%;
+    padding: 40px;
+    border-radius: 14px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 30px;
+    font-weight: normal;
+  }
+  h1 em { color: var(--accent); font-style: italic; }
+  p.sub { margin: 0 0 28px; color: #6f6c63; font-size: 15px; }
+  label { display: block; font-size: 13px; margin: 14px 0 5px; color: #6f6c63; }
+  input {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid #ddd6c8;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: inherit;
+    background: #fffefb;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .words { display: flex; gap: 12px; }
+  .words > div { flex: 1; }
+  button {
+    margin-top: 26px;
+    width: 100%;
+    padding: 13px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .haiku {
+    margin-top: 28px;
+    padding: 24px;
+    border-left: 3px solid var(--accent);
+    background: #faf7f0;
+    border-radius: 0 8px 8px 0;
+    font-size: 20px;
+    line-height: 1.7;
+    white-space: pre-line;
+    font-style: italic;
+    display: none;
+  }
+  .error {
+    margin-top: 20px;
+    color: #b3402a;
+    font-size: 14px;
+    font-family: -apple-system, sans-serif;
+    display: none;
+  }
+  .hint { font-size: 12px; color: #9a9588; margin-top: 6px; font-family: -apple-system, sans-serif; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Three-Word <em>Haiku</em></h1>
+    <p class="sub">Give me three words. Claude will weave them into a haiku.</p>
+
+    <label for="apiKey">Anthropic API key</label>
+    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+    <div class="hint">Used only in your browser to call the Claude API directly. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</div>
+
+    <div class="words">
+      <div>
+        <label for="w1">Word 1</label>
+        <input id="w1" type="text" placeholder="river" />
+      </div>
+      <div>
+        <label for="w2">Word 2</label>
+        <input id="w2" type="text" placeholder="lantern" />
+      </div>
+      <div>
+        <label for="w3">Word 3</label>
+        <input id="w3" type="text" placeholder="silence" />
+      </div>
+    </div>
+
+    <button id="go">Generate haiku</button>
+
+    <div class="haiku" id="haiku"></div>
+    <div class="error" id="error"></div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const btn = $("go");
+  const haikuEl = $("haiku");
+  const errorEl = $("error");
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = "block";
+  }
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    haikuEl.style.display = "none";
+
+    const apiKey = $("apiKey").value.trim();
+    const words = [$("w1").value.trim(), $("w2").value.trim(), $("w3").value.trim()];
+
+    if (!apiKey) return showError("Please enter your Anthropic API key.");
+    if (words.some((w) => !w)) return showError("Please fill in all three words.");
+
+    btn.disabled = true;
+    btn.textContent = "Composing…";
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          // Required to allow calling the API directly from a browser.
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 200,
+          messages: [
+            {
+              role: "user",
+              content:
+                "Write a single short haiku (three lines, roughly 5-7-5 syllables) that naturally " +
+                "incorporates all three of these words: \"" + words[0] + "\", \"" + words[1] +
+                "\", \"" + words[2] + "\". Respond with only the haiku — no title, no explanation.",
+            },
+          ],
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const detail = data && data.error ? data.error.message : ("HTTP " + res.status);
+        throw new Error(detail);
+      }
+
+      const text = (data.content || [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("")
+        .trim();
+
+      haikuEl.textContent = text || "(no haiku returned)";
+      haikuEl.style.display = "block";
+    } catch (err) {
+      showError("Could not generate haiku: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Generate haiku";
+    }
+  });
+</script>
+</body>
+</html>
