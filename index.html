@@ -10,7 +10,6 @@
     --ink: #2b2a26;
     --accent: #c45c33;
     --card: #fffdf8;
-    --muted: #8a8a80;
   }
   * { box-sizing: border-box; }
   body {
@@ -32,11 +31,7 @@
     border-radius: 14px;
     box-shadow: 0 10px 40px rgba(0,0,0,0.08);
   }
-  h1 {
-    margin: 0 0 4px;
-    font-size: 30px;
-    font-weight: normal;
-  }
+  h1 { margin: 0 0 4px; font-size: 30px; font-weight: normal; }
   h1 em { color: var(--accent); font-style: italic; }
   p.sub { margin: 0 0 28px; color: #6f6c63; font-size: 15px; }
   label { display: block; font-size: 13px; margin: 14px 0 5px; color: #6f6c63; }
@@ -73,7 +68,7 @@
     border-left: 3px solid var(--accent);
     background: #faf7f0;
     border-radius: 0 8px 8px 0;
-    font-size: 20px;
+    font-size: 22px;
     line-height: 1.7;
     white-space: pre-line;
     font-style: italic;
@@ -86,18 +81,14 @@
     font-family: -apple-system, sans-serif;
     display: none;
   }
-  .hint { font-size: 12px; color: #9a9588; margin-top: 6px; font-family: -apple-system, sans-serif; }
+  .hint { font-size: 12px; color: #9a9588; margin-top: 18px; font-family: -apple-system, sans-serif; }
   a { color: var(--accent); }
 </style>
 </head>
 <body>
   <div class="card">
     <h1>Three-Word <em>Haiku</em></h1>
-    <p class="sub">Give me three words. Claude will weave them into a haiku.</p>
-
-    <label for="apiKey">Anthropic API key</label>
-    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
-    <div class="hint">Used only in your browser to call the Claude API directly. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</div>
+    <p class="sub">Give me three words. I'll weave them into a 5-7-5 haiku.</p>
 
     <div class="words">
       <div>
@@ -118,6 +109,13 @@
 
     <div class="haiku" id="haiku"></div>
     <div class="error" id="error"></div>
+
+    <p class="hint">
+      Poems are assembled in your browser using related words from the free
+      <a href="https://www.datamuse.com/api/" target="_blank" rel="noopener">Datamuse API</a>
+      (no account or API key needed). Datamuse is a word-association service, not a
+      language model, so results are playful word-collage rather than polished prose.
+    </p>
   </div>
 
 <script>
@@ -126,63 +124,134 @@
   const haikuEl = $("haiku");
   const errorEl = $("error");
 
+  // One-syllable and two-syllable connective words, used to pad lines to an
+  // exact syllable count when the Datamuse pool can't close the gap on its own.
+  const FILLER = [
+    { word: "soft", syl: 1 }, { word: "still", syl: 1 }, { word: "pale", syl: 1 },
+    { word: "cold", syl: 1 }, { word: "far", syl: 1 }, { word: "gray", syl: 1 },
+    { word: "dim", syl: 1 }, { word: "slow", syl: 1 }, { word: "deep", syl: 1 },
+    { word: "lone", syl: 1 }, { word: "old", syl: 1 }, { word: "bright", syl: 1 },
+    { word: "quiet", syl: 2 }, { word: "silent", syl: 2 }, { word: "fading", syl: 2 },
+    { word: "drifting", syl: 2 }, { word: "whisper", syl: 2 }, { word: "shadow", syl: 2 },
+    { word: "morning", syl: 2 }, { word: "evening", syl: 2 }, { word: "distant", syl: 2 },
+    { word: "golden", syl: 2 }, { word: "frozen", syl: 2 }, { word: "hollow", syl: 2 },
+  ];
+
   function showError(msg) {
     errorEl.textContent = msg;
     errorEl.style.display = "block";
+  }
+
+  // Vowel-group fallback when Datamuse has no syllable count for a word.
+  function estSyllables(w) {
+    w = (w || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (!w) return 1;
+    const groups = w.match(/[aeiouy]+/g);
+    let n = groups ? groups.length : 1;
+    if (w.endsWith("e") && n > 1) n--; // silent trailing 'e'
+    return Math.max(1, n);
+  }
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Ask Datamuse for the syllable count of a single word.
+  async function syllablesOf(word) {
+    try {
+      const r = await fetch(
+        "https://api.datamuse.com/words?sp=" + encodeURIComponent(word) + "&md=s&max=1"
+      );
+      const d = await r.json();
+      if (d[0] && typeof d[0].numSyllables === "number") return d[0].numSyllables;
+    } catch (e) { /* fall through to estimate */ }
+    return estSyllables(word);
+  }
+
+  // Ask Datamuse for words related to `word`, with syllable counts.
+  async function relatedTo(word) {
+    try {
+      const r = await fetch(
+        "https://api.datamuse.com/words?ml=" + encodeURIComponent(word) + "&md=s&max=30"
+      );
+      const d = await r.json();
+      return d
+        .filter((x) => x.word && !x.word.includes(" ") && /^[a-zA-Z]+$/.test(x.word))
+        .map((x) => ({ word: x.word, syl: x.numSyllables || estSyllables(x.word) }));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Build one line that includes `seed` and totals exactly `target` syllables.
+  function buildLine(seed, seedSyl, pool, target, used) {
+    const words = [{ word: seed, syl: seedSyl }];
+    let total = seedSyl;
+    used.add(seed);
+
+    while (total < target) {
+      const remaining = target - total;
+      const cands = pool.filter(
+        (p) => p.syl <= remaining && !used.has(p.word) && p.word !== seed
+      );
+      if (cands.length === 0) break; // safety; FILLER 1-syllable words make this rare
+      // Prefer the largest word that fits (fewer words per line), with variety.
+      cands.sort((a, b) => b.syl - a.syl);
+      const top = cands.filter((c) => c.syl === cands[0].syl);
+      const choice = top[Math.floor(Math.random() * top.length)];
+      words.push(choice);
+      used.add(choice.word);
+      total += choice.syl;
+    }
+
+    const line = shuffle(words).map((w) => w.word).join(" ");
+    return line.charAt(0).toUpperCase() + line.slice(1);
   }
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
     haikuEl.style.display = "none";
 
-    const apiKey = $("apiKey").value.trim();
-    const words = [$("w1").value.trim(), $("w2").value.trim(), $("w3").value.trim()];
-
-    if (!apiKey) return showError("Please enter your Anthropic API key.");
-    if (words.some((w) => !w)) return showError("Please fill in all three words.");
+    const raw = [$("w1").value.trim(), $("w2").value.trim(), $("w3").value.trim()];
+    if (raw.some((w) => !w)) return showError("Please fill in all three words.");
+    if (raw.some((w) => !/^[a-zA-Z'-]+$/.test(w)))
+      return showError("Please use single words (letters only).");
 
     btn.disabled = true;
     btn.textContent = "Composing…";
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          // Required to allow calling the API directly from a browser.
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-opus-4-8",
-          max_tokens: 200,
-          messages: [
-            {
-              role: "user",
-              content:
-                "Write a single short haiku (three lines, roughly 5-7-5 syllables) that naturally " +
-                "incorporates all three of these words: \"" + words[0] + "\", \"" + words[1] +
-                "\", \"" + words[2] + "\". Respond with only the haiku — no title, no explanation.",
-            },
-          ],
-        }),
-      });
+      // Look up each word's syllable count and a pool of related words in parallel.
+      const [sylList, ...pools] = await Promise.all([
+        Promise.all(raw.map(syllablesOf)),
+        ...raw.map(relatedTo),
+      ]);
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        const detail = data && data.error ? data.error.message : ("HTTP " + res.status);
-        throw new Error(detail);
+      // Shared pool of candidate words for padding lines.
+      const seen = new Set(raw.map((w) => w.toLowerCase()));
+      const pool = [];
+      for (const list of [...pools, FILLER]) {
+        for (const item of list) {
+          const key = item.word.toLowerCase();
+          if (!seen.has(key)) { seen.add(key); pool.push(item); }
+        }
       }
 
-      const text = (data.content || [])
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("")
-        .trim();
+      // Pair words with their syllable counts; put the longest in the 7-syllable line.
+      const tagged = raw.map((w, i) => ({ word: w, syl: sylList[i] }))
+        .sort((a, b) => a.syl - b.syl);
+      const [shortW, midW, longW] = tagged; // ascending by syllables
 
-      haikuEl.textContent = text || "(no haiku returned)";
+      const used = new Set();
+      const l1 = buildLine(shortW.word, shortW.syl, pool, 5, used);
+      const l2 = buildLine(longW.word, longW.syl, pool, 7, used);
+      const l3 = buildLine(midW.word, midW.syl, pool, 5, used);
+
+      haikuEl.textContent = l1 + "\n" + l2 + "\n" + l3;
       haikuEl.style.display = "block";
     } catch (err) {
       showError("Could not generate haiku: " + err.message);
