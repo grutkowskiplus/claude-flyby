@@ -26,3 +26,9 @@ Tomorrow I'll refactor all,
 I swear it on my keys...
 But first, this README rhymes enough.
 Ship it. (And no, don't `git push --force`, please.)
+
+## Haiku for a Word-Collage Machine
+
+Three words feed the bot—
+it stacks syllables like bricks
+and ships a fake moon.
